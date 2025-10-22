@@ -126,58 +126,29 @@ print_status "PR #$PR_NUMBER found!"
 echo ""
 print_info "Gathering all comments and content..."
 
-# Get the PR description/body itself
-PR_BODY=$(ghGet pulls/"$PR_NUMBER" '
+commentsFile="$(mktemp)"
+trap 'rm -- "$commentsFile"' EXIT
+
+>"$commentsFile" jq -s . \
+    <( # Get the PR description/body itself
+    ghGet pulls/"$PR_NUMBER" '
     select(.body != null and .body != "")
-    | "PR_BODY|\(.number)|\(.user.login): \(.body)"')
-
-# Get issue comments (general PR comments)
-ISSUE_COMMENTS=$(ghGet issues/"$PR_NUMBER"/comments '
-    .[] | "ISSUE|\(.id)|\(.user.login): \(.body)"')
-
-# Get review comments (inline code review comments)
-REVIEW_COMMENTS=$(ghGet pulls/"$PR_NUMBER"/comments '
-    .[] | "REVIEW|\(.id)|\(.user.login): \(.body)")
-
-# Get review summary comments (comments submitted with reviews)
-REVIEW_SUMMARY_COMMENTS=$(ghGet pulls/"$PR_NUMBER"/reviews '
+    | {type: "PR_BODY", id: .number, author: .user.login, body}') \
+    <( # Get issue comments (general PR comments)
+    ghGet issues/"$PR_NUMBER"/comments '
+    .[]
+    | {type: "ISSUE", id, author: .user.login, body}') \
+    <( # Get review comments (inline code review comments)
+    ghGet pulls/"$PR_NUMBER"/comments '
+    .[] | {type: "REVIEW", id, author: .user.login, body}') \
+    <( # Get review summary comments (comments submitted with reviews)
+    ghGet pulls/"$PR_NUMBER"/reviews '
     .[] | select(.body != null and .body != "")
-    | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"')
+    | {type: "REVIEW_SUMMARY", id, author: .user.login, body}')
 
-# Combine all comments
-ALL_COMMENTS=""
-COMMENT_COUNT=0
+COMMENT_COUNT="$(jq length "$commentsFile")"
 
-if [ ! -z "$PR_BODY" ]; then
-    ALL_COMMENTS="$ALL_COMMENTS$PR_BODY"
-    COMMENT_COUNT=$((COMMENT_COUNT + 1))
-fi
-if [ ! -z "$ISSUE_COMMENTS" ]; then
-    if [ ! -z "$ALL_COMMENTS" ]; then
-        ALL_COMMENTS="$ALL_COMMENTS
-"
-    fi
-    ALL_COMMENTS="$ALL_COMMENTS$ISSUE_COMMENTS"
-    COMMENT_COUNT=$((COMMENT_COUNT + $(echo "$ISSUE_COMMENTS" | wc -l)))
-fi
-if [ ! -z "$REVIEW_COMMENTS" ]; then
-    if [ ! -z "$ALL_COMMENTS" ]; then
-        ALL_COMMENTS="$ALL_COMMENTS
-"
-    fi
-    ALL_COMMENTS="$ALL_COMMENTS$REVIEW_COMMENTS"
-    COMMENT_COUNT=$((COMMENT_COUNT + $(echo "$REVIEW_COMMENTS" | wc -l)))
-fi
-if [ ! -z "$REVIEW_SUMMARY_COMMENTS" ]; then
-    if [ ! -z "$ALL_COMMENTS" ]; then
-        ALL_COMMENTS="$ALL_COMMENTS
-"
-    fi
-    ALL_COMMENTS="$ALL_COMMENTS$REVIEW_SUMMARY_COMMENTS"
-    COMMENT_COUNT=$((COMMENT_COUNT + $(echo "$REVIEW_SUMMARY_COMMENTS" | wc -l)))
-fi
-
-if [ -z "$ALL_COMMENTS" ]; then
+if [ "$COMMENT_COUNT" -eq 0 ]; then
     die "${err[NOCOMMS]}" "No comments found for PR #$PR_NUMBER" <<-EOF
 
 	$(tip) This PR doesn't have any comments yet. Try adding a comment first!
@@ -189,29 +160,32 @@ echo ""
 print_info "$(hl 📋 Available content:)"
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
-COUNTER=1
-
 # Format and display comments with numbers
-echo "$ALL_COMMENTS" | while IFS='|' read -r type _ author_and_content; do
-    author=$(echo "$author_and_content" | cut -d':' -f1)
-    content=$(echo "$author_and_content" | cut -d':' -f2- | head -c 80)
-
-    case $type in
-        PR_BODY) label="${PURPLE}📄 PR Description${NC}" ;;
-        ISSUE) label="${GREEN}💬 Comment${NC}" ;;
-        REVIEW) label="${YELLOW}🔍 Code Review${NC}" ;;
-        REVIEW_SUMMARY) label="${BLUE}📝 Review Summary${NC}" ;;
-    esac
-    printf "$(hl [$COUNTER]) $label by $(user $author)"
-    printf "    $(hl └─) $(echo "$content" | tr '\n' ' ')..."
-    echo ""
-    COUNTER=$((COUNTER + 1))
-done
-
-# Store the comment data in temporary file for later retrieval
-commentsFile="$(mktemp)"
-trap 'rm -- "$commentsFile"' EXIT
-echo "$ALL_COMMENTS" > "$commentsFile"
+<"$commentsFile" jq \
+    --arg nc "$NC" \
+    --argjson color \
+        "$(jq --null-input '$ARGS.named' \
+            --arg PR_BODY "$PURPLE" \
+            --arg ISSUE "$GREEN" \
+            --arg REVIEW "$YELLOW" \
+            --arg REVIEW_SUMMARY "$BLUE" \
+            --arg USER "$CYAN"
+        )" \
+    -r '
+    def renderType: .type
+        | "\($color[.])" + {
+            PR_BODY: "📄 PR Description",
+            ISSUE: "💬 Comment",
+            REVIEW: "🔍 Code Review",
+            REVIEW_SUMMARY: "📝 Review Summary",
+        }[.] + $nc;
+    def renderUser: .author
+        | "\($color["USER"])\(.)\($nc)";
+    def renderBody: .body | gsub("\\s"; " ")
+        | "\t└─\(.[:80])\(if length > 80 then "..." else "" end)";
+    to_entries[] | {ix: .key + 1} + .value
+    | "[\(.ix)] \(renderType) by \(renderUser)\n\(renderBody)"
+    '
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -226,11 +200,9 @@ while read -rp "� Enter number (1-$COMMENT_COUNT): " SELECTION; do
     print_error "Invalid selection: $SELECTION"
 done
 
-# Get the selected comment data
-SELECTED_LINE=$(sed -n "${SELECTION}p" "$commentsFile")
-COMMENT_TYPE=$(echo "$SELECTED_LINE" | cut -d'|' -f1)
-COMMENT_ID=$(echo "$SELECTED_LINE" | cut -d'|' -f2)
-SELECTED_AUTHOR=$(echo "$SELECTED_LINE" | cut -d'|' -f3 | cut -d':' -f1)
+COMMENT_TYPE=$(jq -r ".[$SELECTION-1].type" "$commentsFile")
+COMMENT_ID=$(jq ".[$SELECTION-1].id" "$commentsFile")
+SELECTED_AUTHOR=$(jq -r ".[$SELECTION-1].author" "$commentsFile")
 
 echo ""
 print_info "Selected: $(hl "$COMMENT_TYPE") by $(user "$SELECTED_AUTHOR")"
