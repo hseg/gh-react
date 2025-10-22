@@ -185,7 +185,9 @@ echo "$ALL_COMMENTS" | while IFS='|' read -r type _ author_and_content; do
 done
 
 # Store the comment data in temporary file for later retrieval
-echo "$ALL_COMMENTS" > /tmp/gh_react_comments_$$
+commentsFile="$(mktemp)"
+trap 'rm -- "$commentsFile"' EXIT
+echo "$ALL_COMMENTS" > "$commentsFile"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -197,18 +199,14 @@ if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" 
     print_error "Invalid selection: $SELECTION"
     echo ""
     echo "💡 ${YELLOW}Tip:${NC} Please enter a number between 1 and $COMMENT_COUNT"
-    rm -f /tmp/gh_react_comments_$$
     exit 1
 fi
 
 # Get the selected comment data
-SELECTED_LINE=$(sed -n "${SELECTION}p" /tmp/gh_react_comments_$$)
+SELECTED_LINE=$(sed -n "${SELECTION}p" "$commentsFile")
 COMMENT_TYPE=$(echo "$SELECTED_LINE" | cut -d'|' -f1)
 COMMENT_ID=$(echo "$SELECTED_LINE" | cut -d'|' -f2)
 SELECTED_AUTHOR=$(echo "$SELECTED_LINE" | cut -d'|' -f3 | cut -d':' -f1)
-
-# Clean up temp file
-rm -f /tmp/gh_react_comments_$$
 
 echo ""
 print_info "Selected: ${WHITE}$COMMENT_TYPE${NC} by ${CYAN}@$SELECTED_AUTHOR${NC}"
