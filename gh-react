@@ -215,16 +215,16 @@ echo "$ALL_COMMENTS" > "$commentsFile"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo -e "${WHITE}😊 Choose what to react to:${NC}"
-read -rp "� Enter number (1-$COMMENT_COUNT): " SELECTION
-
-# Validate selection is a number and in range
-if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "$COMMENT_COUNT" ]; then
+print_info "$(hl 😊 Choose what to react to:)"
+while read -rp "� Enter number (1-$COMMENT_COUNT): " SELECTION; do
+    # Validate selection is a number and in range
+    if [[ "$SELECTION" =~ ^[0-9]+$ ]] \
+        && [ "$SELECTION" -ge 1 ] \
+        && [ "$SELECTION" -le "$COMMENT_COUNT" ]; then
+        break
+    fi
     print_error "Invalid selection: $SELECTION"
-    echo ""
-    echo "💡 ${YELLOW}Tip:${NC} Please enter a number between 1 and $COMMENT_COUNT"
-    exit 1
-fi
+done
 
 # Get the selected comment data
 SELECTED_LINE=$(sed -n "${SELECTION}p" "$commentsFile")
@@ -235,24 +235,18 @@ SELECTED_AUTHOR=$(echo "$SELECTED_LINE" | cut -d'|' -f3 | cut -d':' -f1)
 echo ""
 print_info "Selected: $(hl "$COMMENT_TYPE") by $(user "$SELECTED_AUTHOR")"
 
-echo ""
-echo -e "${WHITE}😊 Available reactions:${NC}"
-echo "  👍 +1       👎 -1       😄 laugh"
-echo "  ❤️  heart    🎉 hooray   🚀 rocket   👀 eyes"
-echo ""
-read -rp "🎯 Pick a reaction: " REACTION
+declare -A reactions=(
+    [👍]=+1 [👎]=-1 [😄]=laugh [❤️]=heart [🎉]=hooray [🚀]=rocket [👀]=eyes
+)
+PS3='🎯 Pick a reaction: '
+select REACTION in "${!reactions[@]}"; do
+    if [ -n "$REACTION" ]; then
+        break
+    fi
+    print_info 'Invalid reaction'
+done
+unset PS3
 
-# Validate reaction
-case $REACTION in
-    "+1"|"-1"|"laugh"|"heart"|"hooray"|"rocket"|"eyes")
-        ;;
-    *)
-        print_error "Invalid reaction: $REACTION"
-        echo ""
-        echo "💡 ${YELLOW}Valid options:${NC} +1, -1, laugh, heart, hooray, rocket, eyes"
-        exit 1
-        ;;
-esac
 
 echo ""
 print_info "Sending $(hl "$REACTION") reaction to comment $(hl "$COMMENT_ID")..."
@@ -272,7 +266,7 @@ if [ -z "${endpoints[$COMMENT_TYPE]+a}" ]; then
 fi
 
 if ! RESPONSE=$(ghPost "${endpoints[$COMMENT_TYPE]}"/"$COMMENT_ID"/reactions \
-    "$REACTION"); then
+    "${reactions[$REACTION]}"); then
     die "${err[ADDFAIL]}" 'Failed to add reaction' <<-EOF
 
 	Error details: $RESPONSE
