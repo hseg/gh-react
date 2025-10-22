@@ -64,6 +64,15 @@ if [ -z "$repo" ]; then
     repo="$OWNER/$REPO"
 fi
 
+ghGet() {
+    gh api repos/"$repo"/"$1" --jq "$2" 2>/dev/null || echo ""
+}
+
+ghPost() {
+    gh api --method POST repos/"$repo"/"$1" \
+        -f "content=$2" \
+        -H "Accept: application/vnd.github+json" 2>&1
+}
 
 echo -e "${PURPLE}💬 GitHub PR Reaction Tool${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -87,16 +96,22 @@ echo ""
 print_info "Gathering all comments and content..."
 
 # Get the PR description/body itself
-PR_BODY=$(gh api repos/"$repo"/pulls/"$PR_NUMBER" --jq 'select(.body != null and .body != "") | "PR_BODY|\(.number)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+PR_BODY=$(ghGet pulls/"$PR_NUMBER" '
+    select(.body != null and .body != "")
+    | "PR_BODY|\(.number)|\(.user.login): \(.body)"')
 
 # Get issue comments (general PR comments)
-ISSUE_COMMENTS=$(gh api repos/"$repo"/issues/"$PR_NUMBER"/comments --jq '.[] | "ISSUE|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+ISSUE_COMMENTS=$(ghGet issues/"$PR_NUMBER"/comments '
+    .[] | "ISSUE|\(.id)|\(.user.login): \(.body)"')
 
 # Get review comments (inline code review comments)
-REVIEW_COMMENTS=$(gh api repos/"$repo"/pulls/"$PR_NUMBER"/comments --jq '.[] | "REVIEW|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_COMMENTS=$(ghGet pulls/"$PR_NUMBER"/comments '
+    .[] | "REVIEW|\(.id)|\(.user.login): \(.body)")
 
 # Get review summary comments (comments submitted with reviews)
-REVIEW_SUMMARY_COMMENTS=$(gh api repos/"$repo"/pulls/"$PR_NUMBER"/reviews --jq '.[] | select(.body != null and .body != "") | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_SUMMARY_COMMENTS=$(ghGet pulls/"$PR_NUMBER"/reviews '
+    .[] | select(.body != null and .body != "")
+    | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"')
 
 # Combine all comments
 ALL_COMMENTS=""
@@ -219,49 +234,19 @@ esac
 
 echo ""
 print_info "Sending ${WHITE}$REACTION${NC} reaction to comment ${WHITE}$COMMENT_ID${NC}..."
-if [ "$COMMENT_TYPE" = "PR_BODY" ]; then
-    # React to PR description/body
-    RESPONSE=$(gh api --method POST repos/"$repo"/issues/"$PR_NUMBER"/reactions \
-      -f "content=$REACTION" \
-      -H "Accept: application/vnd.github+json" 2>&1)
-elif [ "$COMMENT_TYPE" = "ISSUE" ]; then
-    # React to issue comment
-    RESPONSE=$(gh api --method POST repos/"$repo"/issues/comments/"$COMMENT_ID"/reactions \
-      -f "content=$REACTION" \
-      -H "Accept: application/vnd.github+json" 2>&1)
-elif [ "$COMMENT_TYPE" = "REVIEW" ]; then
-    # React to review comment (inline code comment)
-    RESPONSE=$(gh api --method POST repos/"$repo"/pulls/comments/"$COMMENT_ID"/reactions \
-      -f "content=$REACTION" \
-      -H "Accept: application/vnd.github+json" 2>&1)
-elif [ "$COMMENT_TYPE" = "REVIEW_SUMMARY" ]; then
-    # React to review summary comment
-    RESPONSE=$(gh api --method POST repos/"$repo"/pulls/reviews/"$COMMENT_ID"/reactions \
-      -f "content=$REACTION" \
-      -H "Accept: application/vnd.github+json" 2>&1)
-else
+declare -A endpoints=(
+    [PR_BODY]=issues
+    [ISSUE]=issues/comments
+    [REVIEW]=pulls/comments
+    [REVIEW_SUMMARY]=pulls/reviews
+)
+if [ -z "${endpoints[$COMMENT_TYPE]+a}" ]; then
     print_error "Could not determine comment type for ID $COMMENT_ID"
     exit 1
 fi
 
-# Check if the reaction was successful
-if [ $? -eq 0 ]; then
-    echo ""
-    print_success "Reaction added successfully! 🎉"
-    echo ""
-    echo -e "${WHITE}🔗 View PR:${NC} https://github.com/$repo/pull/$PR_NUMBER"
-
-    # Show reaction emoji based on type
-    case $REACTION in
-        "+1") echo -e "${GREEN}👍 Added thumbs up!${NC}" ;;
-        "-1") echo -e "${RED}👎 Added thumbs down!${NC}" ;;
-        "laugh") echo -e "${YELLOW}😄 Added laugh!${NC}" ;;
-        "heart") echo -e "${RED}❤️ Added heart!${NC}" ;;
-        "hooray") echo -e "${PURPLE}🎉 Added hooray!${NC}" ;;
-        "rocket") echo -e "${BLUE}🚀 Added rocket!${NC}" ;;
-        "eyes") echo -e "${CYAN}👀 Added eyes!${NC}" ;;
-    esac
-else
+if ! RESPONSE=$(ghPost "${endpoints[$COMMENT_TYPE]}"/"$COMMENT_ID"/reactions \
+    "$REACTION"); then
     print_error "Failed to add reaction"
     echo ""
     echo "Error details:"
@@ -270,3 +255,19 @@ else
     echo "💡 ${YELLOW}Tip:${NC} Make sure you have permission to react to this content."
     exit 1
 fi
+
+echo ""
+print_success "Reaction added successfully! 🎉"
+echo ""
+echo -e "${WHITE}🔗 View PR:${NC} https://github.com/$repo/pull/$PR_NUMBER"
+
+# Show reaction emoji based on type
+case $REACTION in
+    "+1") echo -e "${GREEN}👍 Added thumbs up!${NC}" ;;
+    "-1") echo -e "${RED}👎 Added thumbs down!${NC}" ;;
+    "laugh") echo -e "${YELLOW}😄 Added laugh!${NC}" ;;
+    "heart") echo -e "${RED}❤️ Added heart!${NC}" ;;
+    "hooray") echo -e "${PURPLE}🎉 Added hooray!${NC}" ;;
+    "rocket") echo -e "${BLUE}🚀 Added rocket!${NC}" ;;
+    "eyes") echo -e "${CYAN}👀 Added eyes!${NC}" ;;
+esac
