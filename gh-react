@@ -35,29 +35,53 @@ print_success() {
     echo -e "${GREEN}$1${NC}"
 }
 
-# Check if PR number is provided
-if [ -z "$1" ]; then
-    echo -e "${YELLOW}Usage:${NC} ${WHITE}gh react <pr_number>${NC}"
+usage() {
+    echo -e "${YELLOW}Usage:${NC} ${WHITE}gh react [-R [HOST/]OWNER/REPO] <pr_number>${NC}"
+    echo ""
+    echo "Flags:"
+    echo "-R [HOST/]OWNER/REPO    Select another repository using the [HOST/]OWNER/REPO format"
     echo ""
     echo "Examples:"
     echo "  gh react 23    # React to comments in PR #23"
     echo "  gh react 156   # React to comments in PR #156"
-    exit 1
+}
+
+while getopts 'hR:' opt; do
+    case "$opt" in
+        h) usage; exit;;
+        R)
+            # canonicalize by removing the HOST part of [HOST/]OWNER/REPO
+            # Note % and # expansions are noops if the string isn't an affix of
+            # the parameter!
+            repo="${OPTARG#"${OPTARG%/*/*}"/}";;
+        *) usage; exit 1;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Check if PR number is provided
+if [ $# -ne 1 ]; then
+    usage
 fi
 
 PR_NUMBER=$1
+
+if [ -z "$repo" ]; then
+    OWNER=$(gh repo view --json owner -q ".owner.login")
+    REPO=$(gh repo view --json name -q ".name")
+    repo="$OWNER/$REPO"
+fi
+
+
 echo -e "${PURPLE}${COMMENT} GitHub PR Reaction Tool${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 print_info "Fetching comments for PR #${WHITE}$PR_NUMBER${NC}..."
 
-OWNER=$(gh repo view --json owner -q ".owner.login")
-REPO=$(gh repo view --json name -q ".name")
-
-print_info "Repository: ${WHITE}$OWNER/$REPO${NC}"
+print_info "Repository: ${WHITE}$repo${NC}"
 
 # Check if PR exists first
 print_info "Validating PR #${WHITE}$PR_NUMBER${NC}..."
-PR_EXISTS=$(gh pr view $PR_NUMBER --json number 2>/dev/null)
+PR_EXISTS=$(gh -R "$repo" pr view "$PR_NUMBER" --json number 2>/dev/null)
 if [ -z "$PR_EXISTS" ]; then
     print_error "PR #$PR_NUMBER does not exist or you don't have access to it."
     echo ""
@@ -71,16 +95,16 @@ echo ""
 print_info "Gathering all comments and content..."
 
 # Get the PR description/body itself
-PR_BODY=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER --jq 'select(.body != null and .body != "") | "PR_BODY|\(.number)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+PR_BODY=$(gh api repos/$repo/pulls/$PR_NUMBER --jq 'select(.body != null and .body != "") | "PR_BODY|\(.number)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get issue comments (general PR comments)
-ISSUE_COMMENTS=$(gh api repos/$OWNER/$REPO/issues/$PR_NUMBER/comments --jq '.[] | "ISSUE|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+ISSUE_COMMENTS=$(gh api repos/$repo/issues/$PR_NUMBER/comments --jq '.[] | "ISSUE|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get review comments (inline code review comments)
-REVIEW_COMMENTS=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments --jq '.[] | "REVIEW|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_COMMENTS=$(gh api repos/$repo/pulls/$PR_NUMBER/comments --jq '.[] | "REVIEW|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get review summary comments (comments submitted with reviews)
-REVIEW_SUMMARY_COMMENTS=$(gh api repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews --jq '.[] | select(.body != null and .body != "") | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_SUMMARY_COMMENTS=$(gh api repos/$repo/pulls/$PR_NUMBER/reviews --jq '.[] | select(.body != null and .body != "") | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Combine all comments
 ALL_COMMENTS=""
@@ -138,7 +162,7 @@ COUNTER=1
 echo "$ALL_COMMENTS" | while IFS='|' read -r type id author_and_content; do
     author=$(echo "$author_and_content" | cut -d':' -f1)
     content=$(echo "$author_and_content" | cut -d':' -f2- | head -c 80)
-    
+
     case $type in
         "PR_BODY")
             echo -e "${WHITE}[$COUNTER]${NC} ${PURPLE}📄 PR Description${NC} by ${CYAN}@$author${NC}"
@@ -210,22 +234,22 @@ echo ""
 print_info "Sending ${WHITE}$REACTION${NC} reaction to comment ${WHITE}$COMMENT_ID${NC}..."
 if [ "$COMMENT_TYPE" = "PR_BODY" ]; then
     # React to PR description/body
-    RESPONSE=$(gh api --method POST repos/$OWNER/$REPO/issues/$PR_NUMBER/reactions \
+    RESPONSE=$(gh api --method POST repos/$repo/issues/$PR_NUMBER/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "ISSUE" ]; then
     # React to issue comment
-    RESPONSE=$(gh api --method POST repos/$OWNER/$REPO/issues/comments/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/$repo/issues/comments/$COMMENT_ID/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "REVIEW" ]; then
     # React to review comment (inline code comment)
-    RESPONSE=$(gh api --method POST repos/$OWNER/$REPO/pulls/comments/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/$repo/pulls/comments/$COMMENT_ID/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "REVIEW_SUMMARY" ]; then
     # React to review summary comment
-    RESPONSE=$(gh api --method POST repos/$OWNER/$REPO/pulls/reviews/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/$repo/pulls/reviews/$COMMENT_ID/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 else
@@ -238,8 +262,8 @@ if [ $? -eq 0 ]; then
     echo ""
     print_success "Reaction added successfully! 🎉"
     echo ""
-    echo -e "${WHITE}🔗 View PR:${NC} https://github.com/$OWNER/$REPO/pull/$PR_NUMBER"
-    
+    echo -e "${WHITE}🔗 View PR:${NC} https://github.com/$repo/pull/$PR_NUMBER"
+
     # Show reaction emoji based on type
     case $REACTION in
         "+1") echo -e "${GREEN}👍 Added thumbs up!${NC}" ;;
