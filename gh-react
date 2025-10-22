@@ -10,6 +10,9 @@ CYAN=$'\e[0;36m'
 WHITE=$'\e[1;37m'
 NC=$'\e[0m' # No Color
 
+# Error codes
+declare -A err=([BADPARAM]=1 [NOPR]=2 [NOCOMMS]=3 [UNDEFTYPE]=4 [ADDFAIL]=5)
+
 # Function to print colored output
 print_status() {
     printf "${BLUE}%s${NC}\n" "$@"
@@ -29,6 +32,13 @@ print_info() {
 
 print_success() {
     printf "${GREEN}%s${NC}\n" "$@"
+}
+
+die() {
+    code="$1"; shift
+    printf "${RED}%s${NC}\n" "$1"
+    cat
+    exit "$code"
 }
 
 hl() {
@@ -65,7 +75,7 @@ while getopts 'hR:' opt; do
             # Note % and # expansions are noops if the string isn't an affix of
             # the parameter!
             repo="${OPTARG#"${OPTARG%/*/*}"/}";;
-        *) usage; exit 1;;
+        *) usage; exit "${err[BADPARAM]}";;
     esac
 done
 shift $((OPTIND - 1))
@@ -104,12 +114,11 @@ print_info "Repository: $(hl "$repo")"
 print_info "Validating PR #$(hl "$PR_NUMBER")..."
 PR_EXISTS=$(gh -R "$repo" pr view "$PR_NUMBER" --json number 2>/dev/null)
 if [ -z "$PR_EXISTS" ]; then
-    print_error "PR #$PR_NUMBER does not exist or you don't have access to it."
-    cat <<-EOF
+    die "${err[NOPR]}" \
+        "PR #$PR_NUMBER does not exist or you don't have access to it." <<-EOF
 
 	$(tip) Make sure you're in the correct repository and the PR number exists.
 	EOF
-    exit 1
 fi
 print_status "PR #$PR_NUMBER found!"
 
@@ -169,12 +178,10 @@ if [ ! -z "$REVIEW_SUMMARY_COMMENTS" ]; then
 fi
 
 if [ -z "$ALL_COMMENTS" ]; then
-    print_error "No comments found for PR #$PR_NUMBER"
-    cat <<-EOF
+    die "${err[NOCOMMS]}" "No comments found for PR #$PR_NUMBER" <<-EOF
 
 	$(tip) This PR doesn't have any comments yet. Try adding a comment first!
 	EOF
-    exit 0
 fi
 
 print_status "Found $(hl "$COMMENT_COUNT") items to react to!"
@@ -256,20 +263,22 @@ declare -A endpoints=(
     [REVIEW_SUMMARY]=pulls/reviews
 )
 if [ -z "${endpoints[$COMMENT_TYPE]+a}" ]; then
-    print_error "Could not determine comment type for ID $COMMENT_ID"
-    exit 1
+    die "${err[UNDEFTYPE]}" \
+        "Could not determine comment type for ID $COMMENT_ID" <<-EOF
+
+	This shouldn't be possible -- *we* choose the comment types.
+	Please open a ticket for this.
+	EOF
 fi
 
 if ! RESPONSE=$(ghPost "${endpoints[$COMMENT_TYPE]}"/"$COMMENT_ID"/reactions \
     "$REACTION"); then
-    print_error "Failed to add reaction"
-    cat <<-EOF
+    die "${err[ADDFAIL]}" 'Failed to add reaction' <<-EOF
 
 	Error details: $RESPONSE
 
 	$(tip) Make sure you have permission to react to this content.
 	EOF
-    exit 1
 fi
 
 echo ""
