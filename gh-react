@@ -13,11 +13,6 @@ NC=$'\e[0m' # No Color
 # Error codes
 declare -A err=([BADPARAM]=1 [NOPR]=2 [NOCOMMS]=3 [UNDEFTYPE]=4 [ADDFAIL]=5)
 
-# Function to print colored output
-print_status() {
-    printf "${BLUE}%s${NC}\n" "$@"
-}
-
 print_header() {
     printf "${PURPLE}%s${NC}\n" "$@"
 }
@@ -27,7 +22,7 @@ print_error() {
 }
 
 print_info() {
-    printf "${CYAN}%s${NC}\n" "$@"
+    printf "${NC}%s\n" "$@"
 }
 
 print_success() {
@@ -129,7 +124,7 @@ ghPost() {
 
 
 print_header '💬 GitHub PR Reaction Tool'
-echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+print_info '———————————————————————————————————————————————————'
 print_info "Fetching comments for PR #$(hl "$PR_NUMBER")..."
 
 print_info "Repository: $(hl "$repo")"
@@ -144,7 +139,7 @@ if [ -z "$PR_EXISTS" ]; then
 	$(tip) Make sure you're in the correct repository and the PR number exists.
 	EOF
 fi
-print_status "PR #$PR_NUMBER found!"
+print_success "PR #$PR_NUMBER found!"
 
 # Use gh api to get raw comments for the issue/PR
 echo ""
@@ -179,10 +174,10 @@ if [ "$COMMENT_COUNT" -eq 0 ]; then
 	EOF
 fi
 
-print_status "Found $(hl "$COMMENT_COUNT") items to react to!"
+print_success "Found $(hl "$COMMENT_COUNT") items to react to!"
 echo ""
 print_info "$(hl 📋 Available content:)"
-echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+echo '———————————————————————————————————————————————————'
 
 # Format and display comments with numbers
 <"$commentsFile" render '
@@ -190,10 +185,10 @@ echo '━━━━━━━━━━━━━━━━━━━━━━━━�
     | "[\(.ix)] \(renderType) by \(renderUser)\n\(renderBody)"
     '
 
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo '———————————————————————————————————————————————————'
 echo ""
 print_info "$(hl 😊 Choose what to react to:)"
-while read -rp "� Enter number (1-$COMMENT_COUNT): " SELECTION; do
+while read -rp "Enter number (1-$COMMENT_COUNT): " SELECTION; do
     # Validate selection is a number and in range
     if [[ "$SELECTION" =~ ^[0-9]+$ ]] \
         && [ "$SELECTION" -ge 1 ] \
@@ -223,7 +218,6 @@ select REACTION in "${!reactions[@]}"; do
 done
 unset PS3
 
-
 echo ""
 print_info "Sending $(hl "$REACTION") reaction to comment $(hl "$COMMENT_ID")..."
 declare -A endpoints=(
@@ -251,18 +245,5 @@ if ! RESPONSE=$(ghPost "${endpoints[$COMMENT_TYPE]}"/"$COMMENT_ID"/reactions \
 	EOF
 fi
 
-echo ""
 print_success "Reaction added successfully! 🎉"
-echo ""
 echo -e "$(hl 🔗 View PR:) https://github.com/$repo/pull/$PR_NUMBER"
-
-# Show reaction emoji based on type
-case $REACTION in
-    "+1") echo -e "${GREEN}👍 Added thumbs up!${NC}" ;;
-    "-1") echo -e "${RED}👎 Added thumbs down!${NC}" ;;
-    "laugh") echo -e "${YELLOW}😄 Added laugh!${NC}" ;;
-    "heart") echo -e "${RED}❤️ Added heart!${NC}" ;;
-    "hooray") echo -e "${PURPLE}🎉 Added hooray!${NC}" ;;
-    "rocket") echo -e "${BLUE}🚀 Added rocket!${NC}" ;;
-    "eyes") echo -e "${CYAN}👀 Added eyes!${NC}" ;;
-esac
