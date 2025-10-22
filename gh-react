@@ -12,30 +12,49 @@ NC=$'\e[0m' # No Color
 
 # Function to print colored output
 print_status() {
-    echo -e "${BLUE}$1${NC}"
+    printf "${BLUE}%s${NC}\n" "$@"
+}
+
+print_header() {
+    printf "${PURPLE}%s${NC}\n" "$@"
 }
 
 print_error() {
-    echo -e "${RED}$1${NC}"
+    printf "${RED}%s${NC}\n" "$@"
 }
 
 print_info() {
-    echo -e "${CYAN}$1${NC}"
+    printf "${CYAN}%s${NC}\n" "$@"
 }
 
 print_success() {
-    echo -e "${GREEN}$1${NC}"
+    printf "${GREEN}%s${NC}\n" "$@"
+}
+
+hl() {
+    printf "${WHITE}%s${NC}" "$*"
+}
+hl2() {
+    printf "${PURPLE}%s${NC}" "$*"
+}
+tip() {
+    printf "💡 ${YELLOW}%s${NC}" "${1:-Tip}:"
+}
+user() {
+    printf "${CYAN}@%s${NC}" "$1"
 }
 
 usage() {
-    echo -e "${YELLOW}Usage:${NC} ${WHITE}gh react [-R [HOST/]OWNER/REPO] <pr_number>${NC}"
-    echo ""
-    echo "Flags:"
-    echo "-R [HOST/]OWNER/REPO    Select another repository using the [HOST/]OWNER/REPO format"
-    echo ""
-    echo "Examples:"
-    echo "  gh react 23    # React to comments in PR #23"
-    echo "  gh react 156   # React to comments in PR #156"
+    cat <<-EOF
+	$(hl2 Usage:) $(hl gh react [-R [HOST/]OWNER/REPO] PR_NUMBER)
+
+	Flags:
+	-R [HOST/]OWNER/REPO    Select another repository using the [HOST/]OWNER/REPO format
+
+	Examples:
+	  gh react 23    # React to comments in PR #23
+	  gh react 156   # React to comments in PR #156
+	EOF
 }
 
 while getopts 'hR:' opt; do
@@ -74,19 +93,22 @@ ghPost() {
         -H "Accept: application/vnd.github+json" 2>&1
 }
 
-echo -e "${PURPLE}💬 GitHub PR Reaction Tool${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-print_info "Fetching comments for PR #${WHITE}$PR_NUMBER${NC}..."
 
-print_info "Repository: ${WHITE}$repo${NC}"
+print_header '💬 GitHub PR Reaction Tool'
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+print_info "Fetching comments for PR #$(hl "$PR_NUMBER")..."
+
+print_info "Repository: $(hl "$repo")"
 
 # Check if PR exists first
-print_info "Validating PR #${WHITE}$PR_NUMBER${NC}..."
+print_info "Validating PR #$(hl "$PR_NUMBER")..."
 PR_EXISTS=$(gh -R "$repo" pr view "$PR_NUMBER" --json number 2>/dev/null)
 if [ -z "$PR_EXISTS" ]; then
     print_error "PR #$PR_NUMBER does not exist or you don't have access to it."
-    echo ""
-    echo "💡 ${YELLOW}Tip:${NC} Make sure you're in the correct repository and the PR number exists."
+    cat <<-EOF
+
+	$(tip) Make sure you're in the correct repository and the PR number exists.
+	EOF
     exit 1
 fi
 print_status "PR #$PR_NUMBER found!"
@@ -148,15 +170,17 @@ fi
 
 if [ -z "$ALL_COMMENTS" ]; then
     print_error "No comments found for PR #$PR_NUMBER"
-    echo ""
-    echo "💡 ${YELLOW}Tip:${NC} This PR doesn't have any comments yet. Try adding a comment first!"
+    cat <<-EOF
+
+	$(tip) This PR doesn't have any comments yet. Try adding a comment first!
+	EOF
     exit 0
 fi
 
-print_status "Found ${WHITE}$COMMENT_COUNT${NC} items to react to!"
+print_status "Found $(hl "$COMMENT_COUNT") items to react to!"
 echo ""
-echo -e "${WHITE}📋 Available Content:${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+print_info "$(hl 📋 Available content:)"
+echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
 COUNTER=1
 
@@ -166,20 +190,13 @@ echo "$ALL_COMMENTS" | while IFS='|' read -r type _ author_and_content; do
     content=$(echo "$author_and_content" | cut -d':' -f2- | head -c 80)
 
     case $type in
-        "PR_BODY")
-            echo -e "${WHITE}[$COUNTER]${NC} ${PURPLE}📄 PR Description${NC} by ${CYAN}@$author${NC}"
-            ;;
-        "ISSUE")
-            echo -e "${WHITE}[$COUNTER]${NC} ${GREEN}💬 Comment${NC} by ${CYAN}@$author${NC}"
-            ;;
-        "REVIEW")
-            echo -e "${WHITE}[$COUNTER]${NC} ${YELLOW}🔍 Code Review${NC} by ${CYAN}@$author${NC}"
-            ;;
-        "REVIEW_SUMMARY")
-            echo -e "${WHITE}[$COUNTER]${NC} ${BLUE}📝 Review Summary${NC} by ${CYAN}@$author${NC}"
-            ;;
+        PR_BODY) label="${PURPLE}📄 PR Description${NC}" ;;
+        ISSUE) label="${GREEN}💬 Comment${NC}" ;;
+        REVIEW) label="${YELLOW}🔍 Code Review${NC}" ;;
+        REVIEW_SUMMARY) label="${BLUE}📝 Review Summary${NC}" ;;
     esac
-    echo -e "    ${WHITE}└─${NC} $(echo "$content" | tr '\n' ' ')..."
+    printf "$(hl [$COUNTER]) $label by $(user $author)"
+    printf "    $(hl └─) $(echo "$content" | tr '\n' ' ')..."
     echo ""
     COUNTER=$((COUNTER + 1))
 done
@@ -209,7 +226,7 @@ COMMENT_ID=$(echo "$SELECTED_LINE" | cut -d'|' -f2)
 SELECTED_AUTHOR=$(echo "$SELECTED_LINE" | cut -d'|' -f3 | cut -d':' -f1)
 
 echo ""
-print_info "Selected: ${WHITE}$COMMENT_TYPE${NC} by ${CYAN}@$SELECTED_AUTHOR${NC}"
+print_info "Selected: $(hl "$COMMENT_TYPE") by $(user "$SELECTED_AUTHOR")"
 
 echo ""
 echo -e "${WHITE}😊 Available reactions:${NC}"
@@ -231,7 +248,7 @@ case $REACTION in
 esac
 
 echo ""
-print_info "Sending ${WHITE}$REACTION${NC} reaction to comment ${WHITE}$COMMENT_ID${NC}..."
+print_info "Sending $(hl "$REACTION") reaction to comment $(hl "$COMMENT_ID")..."
 declare -A endpoints=(
     [PR_BODY]=issues
     [ISSUE]=issues/comments
@@ -246,18 +263,19 @@ fi
 if ! RESPONSE=$(ghPost "${endpoints[$COMMENT_TYPE]}"/"$COMMENT_ID"/reactions \
     "$REACTION"); then
     print_error "Failed to add reaction"
-    echo ""
-    echo "Error details:"
-    echo "$RESPONSE"
-    echo ""
-    echo "💡 ${YELLOW}Tip:${NC} Make sure you have permission to react to this content."
+    cat <<-EOF
+
+	Error details: $RESPONSE
+
+	$(tip) Make sure you have permission to react to this content.
+	EOF
     exit 1
 fi
 
 echo ""
 print_success "Reaction added successfully! 🎉"
 echo ""
-echo -e "${WHITE}🔗 View PR:${NC} https://github.com/$repo/pull/$PR_NUMBER"
+echo -e "$(hl 🔗 View PR:) https://github.com/$repo/pull/$PR_NUMBER"
 
 # Show reaction emoji based on type
 case $REACTION in
