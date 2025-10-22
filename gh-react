@@ -50,8 +50,32 @@ hl2() {
 tip() {
     printf "💡 ${YELLOW}%s${NC}" "${1:-Tip}:"
 }
-user() {
-    printf "${CYAN}@%s${NC}" "$1"
+
+# Pretty-printer for response data
+render() {
+    jq \
+    --arg nc "$NC" \
+    --argjson color \
+        "$(jq --null-input '$ARGS.named' \
+            --arg PR_BODY "$PURPLE" \
+            --arg ISSUE "$GREEN" \
+            --arg REVIEW "$YELLOW" \
+            --arg REVIEW_SUMMARY "$BLUE" \
+            --arg USER "$CYAN"
+        )" \
+    -r '
+    def renderType: .type
+        | "\($color[.])" + {
+            PR_BODY: "📄 PR Description",
+            ISSUE: "💬 Comment",
+            REVIEW: "🔍 Code Review",
+            REVIEW_SUMMARY: "📝 Review Summary",
+        }[.] + $nc;
+    def renderUser: .author
+        | "\($color["USER"])\(.)\($nc)";
+    def renderBody: .body | gsub("\\s"; " ")
+        | "\t└─\(.[:80])\(if length > 80 then "..." else "" end)";
+    '"$1"
 }
 
 usage() {
@@ -161,28 +185,7 @@ print_info "$(hl 📋 Available content:)"
 echo '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
 # Format and display comments with numbers
-<"$commentsFile" jq \
-    --arg nc "$NC" \
-    --argjson color \
-        "$(jq --null-input '$ARGS.named' \
-            --arg PR_BODY "$PURPLE" \
-            --arg ISSUE "$GREEN" \
-            --arg REVIEW "$YELLOW" \
-            --arg REVIEW_SUMMARY "$BLUE" \
-            --arg USER "$CYAN"
-        )" \
-    -r '
-    def renderType: .type
-        | "\($color[.])" + {
-            PR_BODY: "📄 PR Description",
-            ISSUE: "💬 Comment",
-            REVIEW: "🔍 Code Review",
-            REVIEW_SUMMARY: "📝 Review Summary",
-        }[.] + $nc;
-    def renderUser: .author
-        | "\($color["USER"])\(.)\($nc)";
-    def renderBody: .body | gsub("\\s"; " ")
-        | "\t└─\(.[:80])\(if length > 80 then "..." else "" end)";
+<"$commentsFile" render '
     to_entries[] | {ix: .key + 1} + .value
     | "[\(.ix)] \(renderType) by \(renderUser)\n\(renderBody)"
     '
@@ -205,7 +208,8 @@ COMMENT_ID=$(jq ".[$SELECTION-1].id" "$commentsFile")
 SELECTED_AUTHOR=$(jq -r ".[$SELECTION-1].author" "$commentsFile")
 
 echo ""
-print_info "Selected: $(hl "$COMMENT_TYPE") by $(user "$SELECTED_AUTHOR")"
+<"$commentsFile" render ".[$SELECTION-1]"'
+    | "Selected \(renderType) by \(renderUser)"'
 
 declare -A reactions=(
     [👍]=+1 [👎]=-1 [😄]=laugh [❤️]=heart [🎉]=hooray [🚀]=rocket [👀]=eyes
