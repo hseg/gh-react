@@ -10,14 +10,6 @@ CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
-# Emojis for better visual feedback
-CHECK="✅"
-CROSS="❌"
-ROCKET="🚀"
-EYES="👀"
-COMMENT="💬"
-REACTION="😊"
-
 # Function to print colored output
 print_status() {
     echo -e "${BLUE}$1${NC}"
@@ -73,7 +65,7 @@ if [ -z "$repo" ]; then
 fi
 
 
-echo -e "${PURPLE}${COMMENT} GitHub PR Reaction Tool${NC}"
+echo -e "${PURPLE}💬 GitHub PR Reaction Tool${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 print_info "Fetching comments for PR #${WHITE}$PR_NUMBER${NC}..."
 
@@ -95,16 +87,16 @@ echo ""
 print_info "Gathering all comments and content..."
 
 # Get the PR description/body itself
-PR_BODY=$(gh api repos/$repo/pulls/$PR_NUMBER --jq 'select(.body != null and .body != "") | "PR_BODY|\(.number)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+PR_BODY=$(gh api repos/"$repo"/pulls/"$PR_NUMBER" --jq 'select(.body != null and .body != "") | "PR_BODY|\(.number)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get issue comments (general PR comments)
-ISSUE_COMMENTS=$(gh api repos/$repo/issues/$PR_NUMBER/comments --jq '.[] | "ISSUE|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+ISSUE_COMMENTS=$(gh api repos/"$repo"/issues/"$PR_NUMBER"/comments --jq '.[] | "ISSUE|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get review comments (inline code review comments)
-REVIEW_COMMENTS=$(gh api repos/$repo/pulls/$PR_NUMBER/comments --jq '.[] | "REVIEW|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_COMMENTS=$(gh api repos/"$repo"/pulls/"$PR_NUMBER"/comments --jq '.[] | "REVIEW|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Get review summary comments (comments submitted with reviews)
-REVIEW_SUMMARY_COMMENTS=$(gh api repos/$repo/pulls/$PR_NUMBER/reviews --jq '.[] | select(.body != null and .body != "") | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
+REVIEW_SUMMARY_COMMENTS=$(gh api repos/"$repo"/pulls/"$PR_NUMBER"/reviews --jq '.[] | select(.body != null and .body != "") | "REVIEW_SUMMARY|\(.id)|\(.user.login): \(.body)"' 2>/dev/null || echo "")
 
 # Combine all comments
 ALL_COMMENTS=""
@@ -151,15 +143,10 @@ echo ""
 echo -e "${WHITE}📋 Available Content:${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# Create arrays to store comment data for easy selection
-declare -a COMMENT_IDS
-declare -a COMMENT_TYPES
-declare -a COMMENT_AUTHORS
-declare -a COMMENT_CONTENTS
 COUNTER=1
 
 # Format and display comments with numbers
-echo "$ALL_COMMENTS" | while IFS='|' read -r type id author_and_content; do
+echo "$ALL_COMMENTS" | while IFS='|' read -r type _ author_and_content; do
     author=$(echo "$author_and_content" | cut -d':' -f1)
     content=$(echo "$author_and_content" | cut -d':' -f2- | head -c 80)
 
@@ -187,8 +174,8 @@ echo "$ALL_COMMENTS" > /tmp/gh_react_comments_$$
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo -e "${WHITE}${REACTION} Choose what to react to:${NC}"
-read -p "� Enter number (1-$COMMENT_COUNT): " SELECTION
+echo -e "${WHITE}😊 Choose what to react to:${NC}"
+read -rp "� Enter number (1-$COMMENT_COUNT): " SELECTION
 
 # Validate selection is a number and in range
 if ! [[ "$SELECTION" =~ ^[0-9]+$ ]] || [ "$SELECTION" -lt 1 ] || [ "$SELECTION" -gt "$COMMENT_COUNT" ]; then
@@ -216,7 +203,7 @@ echo -e "${WHITE}😊 Available reactions:${NC}"
 echo "  👍 +1       👎 -1       😄 laugh"
 echo "  ❤️  heart    🎉 hooray   🚀 rocket   👀 eyes"
 echo ""
-read -p "🎯 Pick a reaction: " REACTION
+read -rp "🎯 Pick a reaction: " REACTION
 
 # Validate reaction
 case $REACTION in
@@ -234,22 +221,22 @@ echo ""
 print_info "Sending ${WHITE}$REACTION${NC} reaction to comment ${WHITE}$COMMENT_ID${NC}..."
 if [ "$COMMENT_TYPE" = "PR_BODY" ]; then
     # React to PR description/body
-    RESPONSE=$(gh api --method POST repos/$repo/issues/$PR_NUMBER/reactions \
+    RESPONSE=$(gh api --method POST repos/"$repo"/issues/"$PR_NUMBER"/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "ISSUE" ]; then
     # React to issue comment
-    RESPONSE=$(gh api --method POST repos/$repo/issues/comments/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/"$repo"/issues/comments/"$COMMENT_ID"/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "REVIEW" ]; then
     # React to review comment (inline code comment)
-    RESPONSE=$(gh api --method POST repos/$repo/pulls/comments/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/"$repo"/pulls/comments/"$COMMENT_ID"/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 elif [ "$COMMENT_TYPE" = "REVIEW_SUMMARY" ]; then
     # React to review summary comment
-    RESPONSE=$(gh api --method POST repos/$repo/pulls/reviews/$COMMENT_ID/reactions \
+    RESPONSE=$(gh api --method POST repos/"$repo"/pulls/reviews/"$COMMENT_ID"/reactions \
       -f "content=$REACTION" \
       -H "Accept: application/vnd.github+json" 2>&1)
 else
